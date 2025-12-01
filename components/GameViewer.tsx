@@ -108,7 +108,7 @@ export const GameViewer: React.FC<GameViewerProps> = ({ data, onBack }) => {
     if(!data.simulationData) return 0;
     // Simple placeholder logic: just multiply or add values
     // In a real app we would parse the formula string
-    const vals = Object.values(simValues);
+    const vals = Object.values(simValues) as number[];
     return vals.reduce((a: number, b: number) => a + b, 0); 
   };
 

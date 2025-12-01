@@ -1,13 +1,7 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { ThesisAnalysis, MindMapNode, DiagramData, GameData, GameType } from "../types";
 
-const apiKey = process.env.API_KEY;
-
-if (!apiKey) {
-  console.error("API_KEY is missing from environment variables.");
-}
-
-const ai = new GoogleGenAI({ apiKey: apiKey || 'DUMMY_KEY_FOR_BUILD' });
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // --- SCHEMA DEFINITIONS ---
 
@@ -264,9 +258,14 @@ const cleanJsonString = (str: string): string => {
 
 // --- API CALLS ---
 
-export const analyzeThesisPdf = async (base64Pdf: string): Promise<ThesisAnalysis> => {
+export const analyzeThesisPdf = async (base64Pdf: string, includeDeepAnalysis: boolean = true): Promise<ThesisAnalysis> => {
   try {
     const modelId = "gemini-2.5-flash"; 
+
+    // Adjust prompt based on complexity requirement
+    const systemInstruction = includeDeepAnalysis 
+      ? `Eres el mejor comunicador científico del mundo (estilo Richard Feynman). Explica conceptos usando analogías brillantes. Se creativo y detallado.`
+      : `Eres un analista técnico eficiente. Resume los conceptos clave de forma directa y concisa sin adornos.`;
 
     const response = await ai.models.generateContent({
       model: modelId,
@@ -275,18 +274,16 @@ export const analyzeThesisPdf = async (base64Pdf: string): Promise<ThesisAnalysi
         parts: [
           { inlineData: { mimeType: "application/pdf", data: base64Pdf } },
           {
-            text: `Eres el mejor comunicador científico del mundo (estilo Richard Feynman). Tu habilidad única es explicar conceptos de maestría usando analogías brillantes y cotidianas que cualquiera puede entender.
+            text: `Analiza el PDF adjunto.
             
-            Analiza el PDF adjunto. Para cada sección importante:
+            ${systemInstruction}
             
-            1. **Entiende la esencia técnica:** ¿Qué está diciendo realmente el autor?
-            2. **TRADUCCIÓN FEYNMAN (Lo más importante):** 
-               - Olvida el lenguaje académico. Háblale al usuario como si fuera un amigo curioso.
-               - **OBLIGATORIO:** Usa una ANALOGÍA concreta del mundo real en CADA explicación. 
-               - Ejemplo: Si el tema es "Ancho de banda", explica: "Imagina una autopista. El ancho de banda es cuántos carriles tiene la autopista..."
-               - Haz que la explicación sea visual y memorable.
-            3. **Campo Semántico:** Extrae los conceptos clave.
-            4. **Profundidad Académica (Lo que no se debe perder):** Extrae 3-5 puntos de datos duros, fórmulas, citas o definiciones técnicas precisas que simplificaste en la analogía. Esto sirve para que el estudiante tenga el dato exacto "de relleno" que no entró en el resumen.
+            Requerimientos:
+            1. Analiza cada sección importante.
+            2. Genera un Resumen General.
+            3. Extrae campos semánticos.
+            4. ${includeDeepAnalysis ? 'Provee una explicación Feynman con analogías ricas.' : 'Provee una explicación simple y directa.'}
+            5. Extrae datos técnicos importantes (supplementary info).
 
             Devuelve JSON válido estrictamente según el esquema.`
           }
@@ -295,7 +292,7 @@ export const analyzeThesisPdf = async (base64Pdf: string): Promise<ThesisAnalysi
       config: {
         responseMimeType: "application/json",
         responseSchema: analysisSchema,
-        temperature: 0.45, 
+        temperature: includeDeepAnalysis ? 0.45 : 0.2, 
       }
     });
 
@@ -310,32 +307,52 @@ export const analyzeThesisPdf = async (base64Pdf: string): Promise<ThesisAnalysi
   }
 };
 
-// NEW FUNCTION FOR TRANSCRIPT/TEXT ANALYSIS
-export const analyzeTranscript = async (transcript: string, title?: string): Promise<ThesisAnalysis> => {
+export const fetchVideoContextWithAI = async (url: string): Promise<string | null> => {
+  try {
+    // We use the search tool to find info about the video since we can't scrape it client-side
+    const modelId = "gemini-2.5-flash";
+    const response = await ai.models.generateContent({
+      model: modelId,
+      contents: {
+        role: "user",
+        parts: [{ text: `Busca y proporciona un resumen detallado o la transcripción aproximada del video de YouTube con esta URL: ${url}. Si encuentras el contenido, devuélvelo como texto plano para análisis.` }]
+      },
+      config: {
+        tools: [{ googleSearch: {} }] // Enable search to find the video content
+      }
+    });
+    
+    // Check if we got useful text
+    if (response.text && response.text.length > 100) {
+      return response.text;
+    }
+    return null;
+  } catch (e) {
+    console.warn("Could not fetch video context via AI", e);
+    return null;
+  }
+};
+
+export const analyzeTranscript = async (transcript: string, title?: string, includeDeepAnalysis: boolean = true): Promise<ThesisAnalysis> => {
   try {
     const modelId = "gemini-2.5-flash";
 
-    const promptText = `Eres el mejor comunicador científico del mundo (estilo Richard Feynman).
-    
-    Analiza la siguiente transcripción de video sobre un tema académico complejo:
-    TÍTULO REFERENCIA: "${title || 'Tema del Video'}"
+    const promptText = `Analiza la siguiente transcripción de video:
+    TÍTULO: "${title || 'Tema del Video'}"
     
     TRANSCRIPCIÓN:
     "${transcript.substring(0, 50000)}" 
-    (Nota: Si la transcripción es muy larga, enfócate en los puntos clave).
+    
+    ${includeDeepAnalysis 
+      ? 'Usa el Método Feynman con analogías creativas y explicaciones ricas.' 
+      : 'Sé conciso, directo y técnico.'}
 
     TU TAREA:
-    1. **Segmentación:** Como el texto puede ser continuo, divídelo lógicamente en "Secciones" o "Capítulos" basados en cambios de tema.
-    2. **Análisis:** Para cada sección detectada, genera:
-       - Título de la sección.
-       - **TRADUCCIÓN FEYNMAN:** Explicación narrativa usando 100% ANALOGÍAS del mundo real.
-       - Campo semántico.
-       - Insight Clave.
-       - Datos técnicos (supplementary info).
-    
-    3. Genera un Resumen General del video.
+    1. Segmenta en capítulos lógicos.
+    2. Para cada sección: Título, Explicación (Simple o Feynman), Campo Semántico, Insight Clave, Datos Técnicos.
+    3. Resumen General.
 
-    Devuelve JSON válido estrictamente según el esquema proporcionado.`;
+    Devuelve JSON válido estrictamente según el esquema.`;
 
     const response = await ai.models.generateContent({
       model: modelId,
@@ -346,7 +363,7 @@ export const analyzeTranscript = async (transcript: string, title?: string): Pro
       config: {
         responseMimeType: "application/json",
         responseSchema: analysisSchema,
-        temperature: 0.45,
+        temperature: includeDeepAnalysis ? 0.45 : 0.2,
       }
     });
 
@@ -369,17 +386,16 @@ export const generateMindMapData = async (title: string, context: string): Promi
       contents: {
         role: "user",
         parts: [{
-          text: `Genera una estructura de mapa mental jerárquico (JSON) para el siguiente tema académico:
+          text: `Genera una estructura de mapa mental jerárquico (JSON) para: "${title}".
+          Contexto: "${context}".
           
-          Título: "${title}"
-          Contexto: "${context}"
-
-          El mapa debe tener el Título como raíz.
-          IMPORTANTE:
-          - Debe tener AL MENOS 3 ramas principales (hijos de la raíz).
-          - Cada rama principal debe tener AL MENOS 2 sub-ramas (nietos).
-          - Usa palabras cortas para los labels.
-          - Proporciona una 'description' breve (máx 12 palabras) para CADA nodo, explicando qué es el concepto.`
+          REGLAS:
+          1. Título como raíz.
+          2. MÍNIMO 3 ramas principales.
+          3. MÍNIMO 2 niveles de profundidad (nietos).
+          4. OBLIGATORIO: Incluye una 'description' breve para CADA nodo.
+          
+          JSON Estricto.`
         }]
       },
       config: {
@@ -405,25 +421,19 @@ export const generateDiagramData = async (title: string, context: string): Promi
       contents: {
         role: "user",
         parts: [{
-          text: `Eres un diseñador de información experto. Analiza el siguiente concepto académico y decide cuál es la MEJOR manera visual de representarlo.
+          text: `Diseña un gráfico visual para explicar: "${title}".
+          Contexto: "${context}".
           
-          Concepto: "${title}"
-          Explicación: "${context}"
+          Elige inteligentemente entre: cycle, process, comparison, hierarchy, analogy, quadrant.
+          NO uses siempre el mismo.
           
-          Tipos Disponibles (Elige UNO basándote en la naturaleza del contenido):
-          - 'cycle': Procesos repetitivos o bucles.
-          - 'process': Pasos lineales secuenciales.
-          - 'comparison': Contrastes claros entre A y B.
-          - 'hierarchy': Estructuras piramidales.
-          - 'analogy': Metáforas del mundo real.
-          - 'quadrant': Matrices 2x2 (e.g. Matriz Eisenhower, Riesgo/Impacto).`
+          Devuelve JSON válido.`
         }]
       },
       config: {
         responseMimeType: "application/json",
         responseSchema: diagramSchema,
         temperature: 0.3, 
-        maxOutputTokens: 2000,
       }
     });
 
@@ -438,30 +448,20 @@ export const generateDiagramData = async (title: string, context: string): Promi
 export const generateGamificationData = async (title: string, context: string, preferredType?: GameType): Promise<GameData> => {
   try {
     const modelId = "gemini-2.5-flash";
+    
+    let promptInstruction = `Gamifica este concepto académico: "${title}". Contexto: "${context}".`;
+    
+    if (preferredType) {
+      promptInstruction += `\nUSUARIO ELIGIÓ TIPO: '${preferredType}'. Genera JSON para este tipo específico.`;
+    } else {
+      promptInstruction += `\nElige el mejor tipo de juego (quiz, simulation, sequence, memory) basado en el contenido.`;
+    }
+
     const response = await ai.models.generateContent({
       model: modelId,
       contents: {
         role: "user",
-        parts: [{
-          text: `Analiza este concepto académico: "${title}".
-          Contexto: "${context}".
-          
-          Tu objetivo es GAMIFICAR este concepto para que el usuario aprenda interactuando.
-          
-          ${preferredType 
-            ? `PREFERENCIA DE USUARIO: El usuario ha seleccionado explícitamente el tipo de juego: '${preferredType}'. OBLIGATORIO: Genera una estructura JSON válida estrictamente para type='${preferredType}'.`
-            : `Elige el MEJOR tipo de juego. NO repitas siempre el mismo tipo. Analiza el contenido:
-               - ¿Es un compromiso o balance? -> Usa 'simulation' (variables).
-               - ¿Es una lista de pasos? -> Usa 'sequence'.
-               - ¿Es vocabulario? -> Usa 'memory'.`
-          }
-          
-          Tipos: memory, sequence, clicker, drag_drop, quiz, simulation.
-          
-          REGLAS:
-          - NO USES URLs externas. Usa EMOJIS.
-          - Instrucciones claras y cortas.`
-        }]
+        parts: [{ text: promptInstruction }]
       },
       config: {
         responseMimeType: "application/json",
