@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { MindMapNode } from '../types';
 
 interface MindMapViewerProps {
@@ -77,19 +77,56 @@ const NodeItem: React.FC<{ node: MindMapNode; isRoot?: boolean }> = ({ node, isR
 };
 
 export const MindMapViewer: React.FC<MindMapViewerProps> = ({ data }) => {
+  const [zoom, setZoom] = useState(1);
+
+  const handleZoomIn = () => setZoom(prev => Math.min(prev + 0.2, 2.0));
+  const handleZoomOut = () => setZoom(prev => Math.max(prev - 0.2, 0.4));
+  const handleReset = () => setZoom(1);
+
   return (
     <div className="w-full bg-slate-50/50 rounded-xl border border-slate-200 overflow-hidden flex flex-col h-[500px]">
       
       <div className="bg-slate-100 p-2 border-b border-slate-200 flex justify-between items-center text-xs text-slate-500 px-4">
-         <span>Vista Jerárquica</span>
-         <span className="flex items-center gap-1">
-           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
-           Scroll para explorar / Hover para detalles
-         </span>
+         <span className="font-bold text-slate-600">Vista Jerárquica</span>
+         
+         <div className="flex items-center gap-2">
+            <div className="flex items-center bg-white rounded-lg border border-slate-300 shadow-sm p-0.5">
+              <button 
+                onClick={handleZoomOut}
+                className="p-1 hover:bg-slate-100 rounded text-slate-600 transition-colors"
+                title="Alejar"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                </svg>
+              </button>
+              
+              <button 
+                onClick={handleReset}
+                className="px-2 py-0.5 text-[10px] font-mono font-bold text-slate-600 min-w-[3rem] text-center hover:bg-slate-50 rounded"
+                title="Resetear Zoom"
+              >
+                {Math.round(zoom * 100)}%
+              </button>
+
+              <button 
+                onClick={handleZoomIn}
+                className="p-1 hover:bg-slate-100 rounded text-slate-600 transition-colors"
+                title="Acercar"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+              </button>
+            </div>
+         </div>
       </div>
 
-      <div className="flex-1 overflow-auto p-8 cursor-grab active:cursor-grabbing relative">
-         <div className="w-fit min-w-full flex justify-center">
+      <div className="flex-1 overflow-auto p-8 cursor-grab active:cursor-grabbing relative bg-slate-50/50">
+         <div 
+           className="w-fit min-w-full flex justify-center transition-transform duration-200 origin-top"
+           style={{ transform: `scale(${zoom})` }}
+         >
             <NodeItem node={data} isRoot={true} />
          </div>
       </div>
